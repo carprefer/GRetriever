@@ -1,3 +1,14 @@
+# Dataset
+data/explaGraphs/*
+data/sceneGraphs/*
+data/webQsp/*
+!data/explaGraphs/explaGraphs.tsv
+!data/sceneGraphs/sceneGraphs.zip
+!data/sceneGraphs/sceneGraphsQuestions.csv
+implementation/webQsp_preprocessing.txt
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
