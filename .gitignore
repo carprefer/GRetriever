@@ -2,10 +2,11 @@
 data/explaGraphs/*
 data/sceneGraphs/*
 data/webQsp/*
+output/*
 !data/explaGraphs/explaGraphs.tsv
 !data/sceneGraphs/sceneGraphs.zip
 !data/sceneGraphs/sceneGraphsQuestions.csv
-implementation/webQsp_preprocessing.txt
+implementation/*.txt
 
 
 

@@ -13,14 +13,15 @@
 [LLM] LLaMA 2-7b-hf
 
 ## Milestone
-1. 환경 설정
-2. 데이터 전처리
-3. indexing module 구현 및 테스트(embedding 생성)
+1. ~~환경 설정~~
+2. ~~데이터 전처리~~
+3. ~~indexing module 구현 및 테스트(embedding 생성)~~
 4. Inference-only model 구현 및 테스트
 5. retrieval module 구현 및 테스트
-6. subgraph construction module 구현 및 테스트
-7. answer generation module 구현 및 테스트
-8. 각 데이터셋에 대하여 training 및 평가 진행
+6. retrieve 된 그래프 embedding 생성
+7. subgraph construction module 구현 및 테스트
+8. answer generation module 구현 및 테스트
+9. 각 데이터셋에 대하여 training 및 평가 진행
 
 ## Environment Setup
 
@@ -36,6 +37,8 @@ pip install pandas
 pip install accelerate
 pip install datasets
 pip install torch_geometric
+pip install pcst_fast
+
 ```
 
 ## LLM 설정
@@ -54,9 +57,13 @@ pipe = pipeline("text-generation", model="meta-llama/Llama-2-7b-hf")
 - train_sceneGraphs.json과 questions.csv만 사용한다.
 
 #### WebQSP
+
+- embedding이 매우 크고 생성하는데 오래걸린다. (102GB, 22 시간)
+
 ```python
 from datasets import load_dataset
 
 ds = load_dataset("rmanluo/RoG-webqsp")
 ```
+
 

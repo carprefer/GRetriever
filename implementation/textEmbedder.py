@@ -1,6 +1,8 @@
 import torch
 from transformers import AutoTokenizer, AutoModel
 import torch.nn.functional as F
+from accelerate import infer_auto_device_map
+from utils import *
 
 MODEL_NAME = "sentence-transformers/all-roberta-large-v1"
 
@@ -14,6 +16,8 @@ class TextEmbedder:
     def loadSbert(self):
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
         self.model = AutoModel.from_pretrained(MODEL_NAME, device_map='auto')
+        for param in self.model.parameters():
+            param.requires_grad = False
         self.model.eval()
     
     def runSbert(self, texts, batchSize=64):
@@ -38,3 +42,5 @@ class TextEmbedder:
         return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 textEmbedder = TextEmbedder()
+#textEmbedder.loadModel['sbert']()
+#print(textEmbedder.runModel['sbert']("hello").shape)

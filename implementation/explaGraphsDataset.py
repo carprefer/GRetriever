@@ -1,22 +1,27 @@
 import torch
 import pandas as pd
 import re
+import os
 from tqdm import tqdm
 from torch.utils.data import Dataset
 from torch_geometric.data.data import Data
 from textEmbedder import textEmbedder
+from utils import *
+from evaluate import eval_funcs
 
 RAW_PATH = "../data/explaGraphs/explaGraphs.tsv"
-GRAPH_PATH = "../data/explaGraphs/explaGraphs.pt"
+GRAPH_EMBEDDING_PATH = "../data/explaGraphs/explaGraphs.pt"
 
 class ExplaGraphsDataset(Dataset):
     def __init__(self):
         super().__init__()
         self.dataset = pd.read_csv(RAW_PATH, sep='\t')
         self.prompt = "Question: Do argument 1 and argument 2 support or counter each other? Answer in one word in the form of \'support\' or \'counter\'.\n\nAnswer:"
+        # 
         self.nodes, self.edges = self.extractNodesAndEdges()
         try:
-            self.graphEmbs = torch.load(GRAPH_PATH, weights_only=False)
+            print("Loading explaGraphs' graph embeddings ...")
+            self.graphEmbs = torch.load(GRAPH_EMBEDDING_PATH, weights_only=False)
         except:
             print("Fail to load explaGraphs' graph embeddings.")
             self.graphEmbs = []
@@ -26,14 +31,15 @@ class ExplaGraphsDataset(Dataset):
     
     def __getitem__(self, index):
         assert len(self.dataset['label']) > index and len(self.graphEmbs) > index and len(self.nodes) > index and len(self.edges) > index
- 
+        nodesDf = pd.DataFrame(invertDict(self.nodes[index]).items(), columns=['node_id', 'node_attr'])
+        edgesDf = pd.DataFrame(self.edges[index])
         return {
             'index': index,
-            'question': f"Argument 1: {self.dataset['arg1'][index]}\nArgument 2: {self.dataset['arg2'][index]}\n{self.prompt}",
+            'question': f"Argument 1: {self.dataset['arg1'][index]}\n\nArgument 2: {self.dataset['arg2'][index]}\n\n{self.prompt}",
             'label': self.dataset['label'][index],
             'graphEmbs': self.graphEmbs[index],
-            'nodes': self.nodes[index],
-            'edges': self.edges[index]
+            'desc': nodesDf.to_csv(index=False).replace('\n','\n\n')+'\n'+edgesDf.to_csv(index=False).replace('\n','\n\n')
+            #'desc': nodesDf.to_csv(index=False)+'\n'+edgesDf.to_csv(index=False)
         }
 
     def extractNodesAndEdges(self):
@@ -54,6 +60,9 @@ class ExplaGraphsDataset(Dataset):
         return nodesList, edgesList
 
     def preprocessing(self):
+        if os.path.exists(GRAPH_EMBEDDING_PATH):
+            return
+        
         textEmbedder.loadModel['sbert']()
         text2embs = textEmbedder.runModel['sbert']
         print("ExplaGraphs preprocessing ... ")
@@ -66,7 +75,7 @@ class ExplaGraphsDataset(Dataset):
             processedGraph = Data(x=nodeEmbs, edge_index=edgeIdx, edge_attr=edgeEmbs, num_nodes=len(self.nodes[i]))
             processedGraphs.append(processedGraph)
         
-        torch.save(processedGraphs, GRAPH_PATH)
+        torch.save(processedGraphs, GRAPH_EMBEDDING_PATH)
 
     def splitDataset(self):
         trainTail = self.__len__() * 6 // 10
@@ -76,7 +85,7 @@ class ExplaGraphsDataset(Dataset):
         validationIdxs = list(range(trainTail, validationTail))
         testIdxs = list(range(validationTail, testTail))
         return trainIdxs, validationIdxs, testIdxs
+    
+    def eval(self, path):
+        return eval_funcs['expla_graphs'](path)
 
-
-e = ExplaGraphsDataset()
-e.preprocessing()

@@ -1,50 +1,37 @@
 import torch
 import pandas as pd
 import re
+import os
 from tqdm import tqdm
 from torch.utils.data import Dataset
 from torch_geometric.data.data import Data
 from datasets import load_dataset, concatenate_datasets
 from textEmbedder import textEmbedder
-
-import sys
-
-def get_size(obj, seen=None):
-    """객체의 메모리 크기를 반환하는 함수"""
-    size = sys.getsizeof(obj)
-    if seen is None:
-        seen = set()
-    obj_id = id(obj)
-    if obj_id in seen:
-        return 0
-    # 객체의 ID를 seen 집합에 추가
-    seen.add(obj_id)
-    if isinstance(obj, dict):
-        size += sum([get_size(v, seen) for v in obj.values()])
-        size += sum([get_size(k, seen) for k in obj.keys()])
-    elif hasattr(obj, '__dict__'):
-        size += get_size(obj.__dict__, seen)
-    elif hasattr(obj, '__iter__') and not isinstance(obj, (str, bytes, bytearray)):
-        size += sum([get_size(i, seen) for i in obj])
-    return size
+from evaluate import eval_funcs
+from utils import *
+from retriever import *
 
 DATASET_NAME = "rmanluo/RoG-webqsp"
-GRAPH_EMBEDDING_PATH = "../data/webQsp/webQspGraphs.pt"
+GRAPH_EMBEDDING_PATH = "/mnt/sde/shcha/webQspGraphs.pt"
+RETRIEVED_GRAPH_EMBEDDING_PATH = "../data/webQsp/retrievedWebQspGraphs.pt"
 QUESTION_EMBEDDING_PATH = "../data/webQsp/questionEmbs.pt"
 
 class WebQspDataset(Dataset):
-    def __init__(self):
+    def __init__(self, useGR=False):
         super().__init__()
         dataset = load_dataset(DATASET_NAME)
         self.dataset = concatenate_datasets([dataset['train'], dataset['validation'], dataset['test']])
         self.prompt = "Please answer the given question."
         self.nodes, self.edges = self.extractNodesAndEdges()
         try:
-            self.graphEmbs = torch.load(GRAPH_EMBEDDING_PATH, weights_only=False)
+            print("Loading webQsp's graph embeddings ...")
+            graphPath = RETRIEVED_GRAPH_EMBEDDING_PATH if useGR else GRAPH_EMBEDDING_PATH
+            self.graphEmbs = torch.load(graphPath, weights_only=False)
         except:
             print("Fail to load webQsp's graph embeddings.")
             self.graphEmbs = []
         try:
+            print("Loading webQspGraphs' question embeddings ...")
             self.questionEmbs = torch.load(QUESTION_EMBEDDING_PATH, weights_only=False)
         except:
             print("Fail to load webQspGraphs' question embeddings.")
@@ -55,15 +42,18 @@ class WebQspDataset(Dataset):
     
     def __getitem__(self, index):
         assert len(self.dataset) > index and len(self.graphEmbs) > index and len(self.nodes) > index and len(self.edges) > index
- 
+        nodesDf = pd.DataFrame(invertDict(self.nodes[index]).items(), columns=['node_id', 'node_attr'])
+        edgesDf = pd.DataFrame(self.edges[index])
+        #subg, desc = retrieval_via_pcst(self.graphEmbs[index], self.questionEmbs[index], nodesDf, edgesDf, topk=3, topk_e=3, cost_e=0.5)
         return {
             'index': index,
-            'question': f"Question: {self.dataset[index]['question']}\nAnswer: ",
+            'question': f"Question: {self.dataset[index]['question']}\n\nAnswer: ",
             'label': '|'.join(self.dataset[index]['answer']).lower(),
             'graphEmbs': self.graphEmbs[index],
             'qEmbs': self.questionEmbs[index],
-            'nodes': self.nodes[index],
-            'edges': self.edges[index]
+            #'desc': desc
+            #'desc': nodesDf.to_csv(index=False)+'\n'+edgesDf.to_csv(index=False)
+            'desc': nodesDf.to_csv(index=False).replace('\n','\n\n')+'\n'+edgesDf.to_csv(index=False).replace('\n','\n\n')
         }
 
     def extractNodesAndEdges(self):
@@ -86,22 +76,23 @@ class WebQspDataset(Dataset):
     def preprocessing(self):
         textEmbedder.loadModel['sbert']()
         text2embs = textEmbedder.runModel['sbert']
-        print("WebQspGraphs preprocessing(Question) ... ")
-        processedQuestions = text2embs([data['question'] for data in self.dataset])
-        torch.save(processedQuestions, QUESTION_EMBEDDING_PATH)
+        if not os.path.exists(QUESTION_EMBEDDING_PATH):
+            print("WebQspGraphs preprocessing(Question) ... ")
+            processedQuestions = text2embs([data['question'] for data in self.dataset])
+            torch.save(processedQuestions, QUESTION_EMBEDDING_PATH)
 
-        print("WebQsp preprocessing(Graph) ... ")
-        """processedGraphs = []
-        for i in tqdm(range(len(self.nodes))):
-            nodeEmbs = text2embs(list(self.nodes[i].keys()))
-            edgeEmbs = text2embs([e['edge'] for e in self.edges[i]])
-            edgeIdx = torch.LongTensor([[e['src'] for e in self.edges[i]], 
-                                        [e['dst'] for e in self.edges[i]]])
-            processedGraph = Data(x=nodeEmbs, edge_index=edgeIdx, edge_attr=edgeEmbs, num_nodes=len(self.nodes[i]))
-            processedGraphs.append(processedGraph)
-            print(get_size(processedGraphs))
+        if not os.path.exists(GRAPH_EMBEDDING_PATH):
+            print("WebQsp preprocessing(Graph) ... ")
+            processedGraphs = []
+            for i in tqdm(range(len(self.nodes))):
+                nodeEmbs = text2embs(list(self.nodes[i].keys()))
+                edgeEmbs = text2embs([e['edge'] for e in self.edges[i]])
+                edgeIdx = torch.LongTensor([[e['src'] for e in self.edges[i]], 
+                                            [e['dst'] for e in self.edges[i]]])
+                processedGraph = Data(x=nodeEmbs, edge_index=edgeIdx, edge_attr=edgeEmbs, num_nodes=len(self.nodes[i]))
+                processedGraphs.append(processedGraph)
 
-        torch.save(processedGraphs, GRAPH_EMBEDDING_PATH)"""
+            torch.save(processedGraphs, GRAPH_EMBEDDING_PATH)
 
     def splitDataset(self):
         trainTail = self.__len__() * 6 // 10
@@ -112,6 +103,5 @@ class WebQspDataset(Dataset):
         testIdxs = list(range(validationTail, testTail))
         return trainIdxs, validationIdxs, testIdxs
 
-
-wq = WebQspDataset()
-wq.preprocessing()
+    def eval(self, path):
+        return eval_funcs['webqsp'](path)
