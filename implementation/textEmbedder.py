@@ -1,7 +1,6 @@
 import torch
 from transformers import AutoTokenizer, AutoModel
 import torch.nn.functional as F
-from accelerate import infer_auto_device_map
 from utils import *
 
 MODEL_NAME = "sentence-transformers/all-roberta-large-v1"
@@ -12,6 +11,12 @@ class TextEmbedder:
         self.runModel = {'sbert': self.runSbert}
         self.model = None
         self.tokenizer = None
+
+    def mean_pooling(self, model_output, attention_mask):
+        token_embeddings = model_output[0]  # First element of model_output contains all token embeddings
+        data_type = token_embeddings.dtype
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(data_type)
+        return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
     def loadSbert(self):
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -34,12 +39,6 @@ class TextEmbedder:
             embeddings.append(F.normalize(self.mean_pooling(outputs, tokens.attention_mask), p=2, dim=1))
 
         return torch.cat(embeddings, dim=0)
-    
-    def mean_pooling(self, model_output, attention_mask):
-        token_embeddings = model_output[0]  # First element of model_output contains all token embeddings
-        data_type = token_embeddings.dtype
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(data_type)
-        return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 textEmbedder = TextEmbedder()
 #textEmbedder.loadModel['sbert']()

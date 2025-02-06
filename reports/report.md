@@ -16,13 +16,12 @@ nohup python evaluate.py --dataset 2 --llm > dataset_2.txt 2>&1 &
 # llama-2-70b로 GrailQA 돌리기 
 nohup python evaluate.py --dataset 3 --model 1 > dataset_3.txt 2>&1 &
 ```
-
+- 평가 방식을 같게 하기 위하여 evaluate.py는 내려받아 사용하였다.
 - Inference-only에는 llama-2-7b-chat-hf를 사용하자!!!
 
 | Setting | ExplaGraphs | SceneGraphs | WebQsp |
 |---------|-------------|-------------|--------|
-| Inference-only | 0.5433 | 0.3457 | 43.125 | 
-| Inference-only with retriever | * | 0.1405| |
+| Inference-only | 0.5433 | 0.35.72 | 47.02 |
 
 - LLM만 사용했을 때의 결과이다.
 

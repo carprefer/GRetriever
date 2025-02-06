@@ -46,7 +46,7 @@ class Llm(torch.nn.Module):
             # truncate description to fit in max_length
             description = self.tokenizer.decode(self.tokenizer.encode(data['desc'], truncation=True, max_length=self.maxLength, add_special_tokens=False), skip_special_tokens=True)
             input = description + '\n' + question
-            #input = '<s>[INST] + description + '\n' + question + '[/INST]'
+            #input = '<s>[INST]' + description + '\n' + question + '[/INST]'
             inputs.append(input)
         
         outputs = self.generator(inputs, max_new_tokens=self.maxNewTokens)

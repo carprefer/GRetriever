@@ -16,7 +16,7 @@
 1. ~~환경 설정~~
 2. ~~데이터 전처리~~
 3. ~~indexing module 구현 및 테스트(embedding 생성)~~
-4. Inference-only model 구현 및 테스트
+4. ~~Inference-only model 구현 및 테스트~~
 5. retrieval module 구현 및 테스트
 6. retrieve 된 그래프 embedding 생성
 7. subgraph construction module 구현 및 테스트

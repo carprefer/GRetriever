@@ -12,3 +12,6 @@ def getAvailableGpus():
         if remain > total * 0.9:
             availableGpus.append(i)
     return availableGpus
+
+def dataFrame2dictList(df):
+    return [{k: df[k][i] for k in df.columns} for i in range(len(df[df.columns[0]]))]

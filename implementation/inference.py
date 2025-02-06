@@ -31,13 +31,13 @@ args = argparser.parse_args()
 dataset = DATASET[args.dataset]()
 model = MODEL[args.model]()
 
+print("Preprocessing ... ")
 dataset.preprocessing()
 
 print("Making test set ... ")
-testset = [dataset[i] for i in tqdm(dataset.splitDataset()[2])]
-
+testIdxs = dataset.splitDataset()[2]
 if args.num != 0:
-    testset = random.sample(testset, min(len(testset), args.num))
+    testset = [dataset[i] for i in tqdm(random.sample(testIdxs, min(len(testIdxs), args.num)))]
 
 outputPath = OUTPUT_PATH + args.dataset + '_' + args.model + '.json'
 
