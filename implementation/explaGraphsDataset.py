@@ -6,7 +6,7 @@ from gRetrieverDataset import GRetrieverDataset
 RAW_PATH = "../data/explaGraphs/explaGraphs.tsv"
 PATH = {
     'graphEmbs': "../data/explaGraphs/explaGraphs.pt",
-    'retrievedGraphEmbs': None,
+    'subGraphEmbs': None,
     'qEmbs': None
 }
 
@@ -17,6 +17,7 @@ class ExplaGraphsDataset(GRetrieverDataset):
     
     def __getitem__(self, index):
         assert len(self.dataset) > index and len(self.graphEmbs) > index and len(self.nodes) > index and len(self.edges) > index
+        
         return {
             'index': index,
             'question': f"Argument 1: {self.dataset[index]['arg1']}\n\nArgument 2: {self.dataset[index]['arg2']}\n\n{self.prompt}",
@@ -39,4 +40,5 @@ class ExplaGraphsDataset(GRetrieverDataset):
             self.nodes.append(list(nodes.keys()))
             self.edges.append(edges)
     
+        self.dataId2graphId = {i: i for i in range(len(self.dataset))}
 

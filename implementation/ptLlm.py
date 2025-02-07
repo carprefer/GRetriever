@@ -1,8 +1,8 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
-class Llm(torch.nn.Module):
-    def __init__(self, modelName='meta-llama/Llama-2-7b-chat-hf', isFrozen=True, maxLength=512, maxNewTokens=32, initPrompt=None):
+class PtLlm(torch.nn.Module):
+    def __init__(self, modelName='meta-llama/Llama-2-7b-hf', isFrozen=True, maxLength=512, maxNewTokens=32, initPrompt=None, vTokenNum=10):
         super().__init__()
         self.maxLength = maxLength
         self.maxNewTokens = maxNewTokens
@@ -11,7 +11,7 @@ class Llm(torch.nn.Module):
         self.model = AutoModelForCausalLM.from_pretrained(
             modelName,
             device_map='auto',
-            torch_dtype=torch.float16,
+            #torch_dtype=torch.float16,
             low_cpu_mem_usage=True
         )
         if isFrozen:
@@ -19,43 +19,49 @@ class Llm(torch.nn.Module):
             for param in self.model.parameters():
                 param.requires_grad = False
 
-        self.generator = pipeline(
-            'text-generation', 
-            model=self.model, 
-            tokenizer=self.tokenizer,
-            device_map='auto', 
-            torch_dtype=torch.float16,
-            #use_cache=True
-        )
+        self.embedding = self.model.model.get_input_embeddings()
 
         self.eosId = self.tokenizer.encode('</s>', add_special_tokens=False)
         self.bosId = self.tokenizer.encode('<s>[INST]', add_special_tokens=False)
         self.userEosId = self.tokenizer.encode('[/INST]', add_special_tokens=False)
+        self.bosEmb = self.embedding(torch.tensor(self.bosId))
+        self.padEmb = self.embedding(torch.tensor(0)).unsqueeze(0)
+
+        # prompt tuning
+        initPromptId = self.tokenizer.encode(initPrompt, add_special_tokens=False)
+        initPromptId = initPromptId * vTokenNum
+        initPromptId = initPromptId[:vTokenNum]
+
+        self.initPromptEmb = torch.nn.Parameter(self.embedding.weight[torch.LongTensor(initPromptId)].detach().clone().to(torch.float32))
     
     def forward(self, datas=list[dict]):
-        inputIds = []
+        inputEmbs = []
         labelIds = []
+        attentionMasks = []
         for data in datas:
             qId = self.tokenizer.encode(data['question'])
             descId = self.tokenizer.encode(data['desc'], truncation=True, max_length=self.maxLength, add_special_tokens=False)
 
             labelId = self.tokenizer.encode(data['label'], truncation=True, max_length=self.maxNewTokens, add_special_tokens=False)
             labelId += self.eosId
-            inputId = self.bosId + descId + qId + self.userEosId + labelId
-            labelId = [-100] * (len(inputId) - len(labelId)) + labelId
+            inputId = descId + qId + self.userEosId + labelId
+            inputEmb = self.embedding(torch.tensor(inputId))
+            inputEmb = torch.cat([self.bosEmb, self.initPromptEmb.repeat(len(datas),1), inputEmb], dim=0)
+            labelId = [-100] * (inputEmb.shape[0] - len(labelId)) + labelId
 
-            inputIds.append(inputId)
+            inputEmbs.append(inputEmb)
             labelIds.append(labelId)
+            attentionMasks.append([1] * inputEmb.shape[0])
         
-        maxLength = max([len(input) for input in inputIds])
-        for i in range(len(inputIds)):
-            inputIds[i] = [0] * (maxLength - len(inputIds[i])) + inputIds[i]
-            labelIds[i] = [-100] * (maxLength - len(labelIds[i])) + labelIds[i]
-
-        attentionMasks = [[0 if id == 0 else 1 for id in inputId] for inputId in inputIds]
+        maxLength = max([inputEmb.shape[0] for inputEmb in inputEmbs])
+        for i in range(len(inputEmbs)):
+            padLength = maxLength - inputEmbs[i].shape[0]
+            inputEmbs[i] = torch.cat([self.padEmb.repeat(padLength, 1), inputEmbs[i]])
+            labelIds[i] = [-100] * padLength + labelIds[i]
+            attentionMasks[i] = [0] * padLength + attentionMasks[i]
 
         outputs = self.model(
-            input_ids=torch.tensor(inputIds), 
+            inputs_embeds=torch.stack(inputEmbs, dim=0),
             attention_mask=torch.tensor(attentionMasks),
             labels=torch.tensor(labelIds)
         )
@@ -63,17 +69,31 @@ class Llm(torch.nn.Module):
         return outputs.loss
 
     def inference(self, datas: list[dict]):
-        inputs = []
+        inputEmbs = []
+        attentionMasks = []
         for data in datas:
-            question = data['question']
-            # truncate description to fit in max_length
-            description = self.tokenizer.decode(self.tokenizer.encode(data['desc'], truncation=True, max_length=self.maxLength, add_special_tokens=False), skip_special_tokens=True)
-            input = description + question
-            #input = '<s>[INST]' + description + '\n' + question + '[/INST]'
-            inputs.append(input)
+            qId = self.tokenizer.encode(data['question'])
+            descId = self.tokenizer.encode(data['desc'], truncation=True, max_length=self.maxLength, add_special_tokens=False)
+            
+            inputId = descId + qId + self.userEosId
+            inputEmb = self.embedding(torch.tensor(inputId))
+            inputEmb = torch.cat([self.bosEmb, self.initPromptEmb, inputEmb], dim=0)
+
+            inputEmbs.append(inputEmb)
+            attentionMasks.append([1] * inputEmb.shape[0])
         
-        outputs = self.generator(inputs, max_new_tokens=self.maxNewTokens)
-        return [output[0]['generated_text'].replace(input, '').strip() for input, output in zip(inputs, outputs)]
+        maxLength = max([inputEmb.shape[0] for inputEmb in inputEmbs])
+        for i in range(len(inputEmbs)):
+            padLength = maxLength - inputEmbs[i].shape[0]
+            inputEmbs[i] = torch.cat([self.padEmb.repeat(padLength, 1), inputEmbs[i]])
+            attentionMasks[i] = [0] * padLength + attentionMasks[i]
+
+        outputs = self.model(
+            inputs_embeds=torch.stack(inputEmbs, dim=0),
+            attention_mask=torch.tensor(attentionMasks),
+            max_new_tokens=self.maxNewTokens
+        )
+        return [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in outputs.logits.argmax(dim=-1)]
 
 examples = [
     {'question': "Argument 1: Cannabis should be legal.\nArgument 2: It's not a bad thing to make marijuana more available.\nQuestion: Do argument 1 and argument 2 support or counter each other? Answer in one word in the form of \'support\' or \'counter\'.\n\nAnswer:", 
@@ -97,5 +117,6 @@ examples = [
     }
 ]
 
-#llm = Llm()
-#print(llm.inference(examples))
+#llm = PtLlm(initPrompt="Please answer the given question.")
+
+#print(llm.forward(examples))

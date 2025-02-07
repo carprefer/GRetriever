@@ -21,7 +21,7 @@ nohup python evaluate.py --dataset 3 --model 1 > dataset_3.txt 2>&1 &
 
 | Setting | ExplaGraphs | SceneGraphs | WebQsp |
 |---------|-------------|-------------|--------|
-| Inference-only | 0.5433 | 0.35.72 | 47.02 |
+| Inference-only | 0.5920 | 0.35.72 | 47.02 |
 
 - LLM만 사용했을 때의 결과이다.
 

@@ -5,7 +5,7 @@ from datasets import load_dataset, concatenate_datasets
 DATASET_NAME = "rmanluo/RoG-webqsp"
 PATH = {
     'graphEmbs': "/mnt/sde/shcha/webQspGraphs.pt",
-    'retrievedGraphEmbs': "../data/webQsp/retrievedWebQspGraphs.pt",
+    'subGraphEmbs': "../data/webQsp/retrievedWebQspGraphs.pt",
     'qEmbs': "../data/webQsp/questionEmbs.pt"
 }
 
@@ -13,12 +13,12 @@ class WebQspDataset(GRetrieverDataset):
     def __init__(self, useGR=False):
         dataset = load_dataset(DATASET_NAME)
         dataset = concatenate_datasets([dataset['train'], dataset['validation'], dataset['test']])
-        super().__init__('webQsp', dataset, PATH, useGR=useGR)
-        self.prompt = "Please answer the given question."
+        super().__init__('webQsp', dataset, PATH, useGR=useGR, topkN=3, topkE=5, eCost=0.5)
+        self.prompt = "Please answer the given question.\nAnswer:"
     
     def __getitem__(self, index):
         assert len(self.dataset) > index and len(self.graphEmbs) > index and len(self.nodes) > index and len(self.edges) > index
-        #subg, desc = retrieval_via_pcst(self.graphEmbs[index], self.questionEmbs[index], nodesDf, edgesDf, topk=3, topk_e=3, cost_e=0.5)
+
         return {
             'index': index,
             'question': f"Question: {self.dataset[index]['question']}\n\nAnswer: ",
@@ -40,3 +40,5 @@ class WebQspDataset(GRetrieverDataset):
                 edges.append({'src': nodes[src], 'edge': relation, 'dst': nodes[dst]})
             self.nodes.append(list(nodes.keys()))
             self.edges.append(edges)
+
+        self.dataId2graphId = {i: i for i in range(len(self.dataset))}

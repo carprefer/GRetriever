@@ -1,6 +1,7 @@
 import torch
 import pandas as pd
 import os
+import random
 from tqdm import tqdm
 from torch.utils.data import Dataset
 from datasets import Dataset as HFDataset
@@ -10,13 +11,18 @@ from evaluate import eval_funcs
 from utils import *
 
 class GRetrieverDataset(Dataset):
-    def __init__(self, name, dataset, path, useGR=False):
+    def __init__(self, name, dataset, path, useGR=False, topkN=3, topkE=3, eCost=1):
         super().__init__()
-        self.graphEmbsPath = path['retrievedGraphEmbs'] if useGR else path['graphEmbs']
+        self.graphEmbsPath = path['graphEmbs']
+        self.subGraphEmbsPath = path['subGraphEmbs']
         self.qEmbsPath = path['qEmbs']
         self.name = name
         self.nodes = []
         self.edges = []
+        self.dataId2graphId = {}
+        self.topkN = topkN
+        self.topkE = topkE
+        self.eCost = eCost
 
         # convert dataset into list of dictionary
         if isinstance(dataset, (list, HFDataset)):
@@ -27,7 +33,8 @@ class GRetrieverDataset(Dataset):
         print("Extracting nodes and edges ...") 
         self.extractNodesAndEdges()
         
-        self.graphEmbs = self.loadEmbeddings(self.graphEmbsPath, type='graph')
+        
+        self.graphEmbs = self.loadEmbeddings(self.subGraphEmbsPath if useGR else self.graphEmbsPath, type='graph')
         if self.qEmbsPath != None:
             self.qEmbs = self.loadEmbeddings(self.qEmbsPath, type='question')
 
@@ -75,15 +82,38 @@ class GRetrieverDataset(Dataset):
 
             torch.save(processedGraphs, self.graphEmbsPath)
 
+        if self.subGraphEmbsPath != None and not os.path.exists(self.subGraphEmbsPath):
+            processedGraphs = []
+            for i, qEmb in enumerate(self.qEmbs):
+                dataId = self.dataId2graphId[i]
+                graph = self.graphEmbs[dataId]
+                if len(self.nodes[dataId]) == 0 or len(self.edges[dataId]) == 0:
+                    processedGraphs.append(graph)
+                else:
+                    nodePrizes, edgePrizes, eCost = retrieveAndAssign(graph, qEmb, self.topkN, self.topkE, self.eCost)
+                    vNodePrizes, vEdges, vCosts, vEid2Eid, vNid2Eid = makeVirtualGraph(graph, nodePrizes, edgePrizes, eCost)
+                    processedGraph = makeSubGraph(graph, vNodePrizes, vEdges, vCosts, vEid2Eid, vNid2Eid)
+                    processedGraphs.append(processedGraph)
+
+            torch.save(processedGraphs, self.subGraphEmbsPath)
+
     def splitDataset(self):
+        idxs = list(range(self.__len__()))
+        random.shuffle(idxs)
         trainTail = self.__len__() * 6 // 10
         validationTail = self.__len__() * 8 // 10
         testTail = self.__len__()
-        trainIdxs = list(range(trainTail))
-        validationIdxs = list(range(trainTail, validationTail))
-        testIdxs = list(range(validationTail, testTail))
+        trainIdxs = [idxs[i] for i in range(trainTail)]
+        validationIdxs = [idxs[i] for i in range(trainTail, validationTail)]
+        testIdxs = [idxs[i] for i in range(validationTail, testTail)]
         return trainIdxs, validationIdxs, testIdxs
     
     def eval(self, path):
         return eval_funcs[self.name](path)
+    
+
+
+
+
+
 

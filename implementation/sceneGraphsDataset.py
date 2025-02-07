@@ -7,7 +7,7 @@ IMAGE_PATH = "../data/sceneGraphs/sceneGraphs.json"
 QUESTION_PATH = "../data/sceneGraphs/sceneGraphsQuestions.csv"
 PATH = {
     'graphEmbs': "/mnt/sde/shcha/sceneGraphs.pt",
-    'retrievedGraphEmbs': "../data/sceneGraphs/retrievedSceneGraphs.pt",
+    'subGraphEmbs': "../data/sceneGraphs/retrievedSceneGraphs.pt",
     'qEmbs': "../data/sceneGraphs/questionEmbs.pt"
 }
 
@@ -15,16 +15,15 @@ class SceneGraphsDataset(GRetrieverDataset):
     def __init__(self, useGR=False):
         with open(IMAGE_PATH, 'r', encoding='utf-8') as file:
             self.imageset = json.load(file)
-        self.imgId2nodesId = {}
-        super().__init__('sceneGraphs', pd.read_csv(QUESTION_PATH), PATH, useGR=useGR)
-        self.prompt = None
+        self.imgId2graphId = {}
+        super().__init__('sceneGraphs', pd.read_csv(QUESTION_PATH), PATH, useGR=useGR, topkN=3, topkE=3, eCost=1)
+        self.prompt = "Please answer the given question."
 
     
     def __getitem__(self, index):
         assert len(self.dataset) > index
         imgIdx = self.dataset[index]['image_id']
-        nodesIdx = self.imgId2nodesId[imgIdx]
-        #subg, desc = retrieval_via_pcst(graphEmbs, self.questionEmbs[index], nodesDf, edgesDf, topk=3, topk_e=3, cost_e=0.5)
+        nodesIdx = self.imgId2graphId[imgIdx]
         return {
             'index': index,
             'imageIdx': imgIdx,
@@ -58,5 +57,6 @@ class SceneGraphsDataset(GRetrieverDataset):
         for imgId in list(dict.fromkeys([d['image_id'] for d in self.dataset])):
             self.nodes.append(nodesDict[imgId])
             self.edges.append(edgesDict[imgId])
-            self.imgId2nodesId[imgId] = len(self.imgId2nodesId)
+            self.imgId2graphId[imgId] = len(self.imgId2graphId)
 
+        self.dataId2graphId = {i: self.imgId2graphId[data['image_id']] for i, data in enumerate(self.dataset)}
