@@ -3,6 +3,19 @@ from pcst_fast import pcst_fast
 from torch_geometric.data.data import Data
 import numpy as np
 
+import random, os
+import numpy as np
+import torch
+
+def seed_everything(seed: int):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+
 def invertDict(d):
     return {v:k for k, v in d.items()}
 
@@ -66,13 +79,13 @@ def makeVirtualGraph(graph, nodePrizes, edgePrizes, eCost=0.5):
     
     return vNodePrizes, vEdges, vCosts, vEid2Eid, vNid2Eid
 
-def makeSubGraph(graph, vNodePrizes, vEdges, vCosts, vEid2Eid, vNid2Eid):
+def makeSubGraph(graph, nodes, edges, vNodePrizes, vEdges, vCosts, vEid2Eid, vNid2Eid):
     pcstNodeIdxs, pcstEdgeIdxs = pcst_fast(np.array(vEdges), np.array(vNodePrizes), np.array(vCosts), -1, 1, 'gw', 0)
     
     vNodeIdxs = pcstNodeIdxs[pcstNodeIdxs >= graph.num_nodes].tolist()
     
     subEdgeIdxs = [vEid2Eid[vEid] for vEid in pcstEdgeIdxs if vEid in vEid2Eid] + [vNid2Eid[vNid] for vNid in vNodeIdxs]
-    subEdgeIdxs = list(dict.fromkeys(subEdgeIdxs))
+    #subEdgeIdxs = list(dict.fromkeys(subEdgeIdxs))
     edgeSrcDst = graph.edge_index[:, subEdgeIdxs].tolist()
     subNodeIdxs = pcstNodeIdxs[pcstNodeIdxs < graph.num_nodes].tolist() + edgeSrcDst[0] + edgeSrcDst[1]
 
@@ -80,9 +93,12 @@ def makeSubGraph(graph, vNodePrizes, vEdges, vCosts, vEid2Eid, vNid2Eid):
 
     mapping = {nid: i for i, nid in enumerate(subNodeIdxs)}
 
+    n = [nodes[i] for i in subNodeIdxs]
+    e = [{'src': mapping[edges[i]['src']], 'edge': edges[i]['edge'], 'dst': mapping[edges[i]['dst']]} for i in subEdgeIdxs]
+
     nodeEmbs = graph.x[subNodeIdxs]
     edgeEmbs = graph.edge_attr[subEdgeIdxs]
     edgeIdx = torch.LongTensor([[mapping[i] for i in edgeSrcDst[0]],
                                 [mapping[i] for i in edgeSrcDst[1]]])
 
-    return Data(x=nodeEmbs, edge_index=edgeIdx, edge_attr=edgeEmbs, num_nodes=len(subNodeIdxs))
+    return Data(x=nodeEmbs, edge_index=edgeIdx, edge_attr=edgeEmbs, num_nodes=len(subNodeIdxs)), n, e

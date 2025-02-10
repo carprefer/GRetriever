@@ -2,6 +2,7 @@ import torch
 import pandas as pd
 import os
 import random
+import json
 from tqdm import tqdm
 from torch.utils.data import Dataset
 from datasets import Dataset as HFDataset
@@ -13,9 +14,14 @@ from utils import *
 class GRetrieverDataset(Dataset):
     def __init__(self, name, dataset, path, useGR=False, topkN=3, topkE=3, eCost=1):
         super().__init__()
+        self.useGR = useGR
         self.graphEmbsPath = path['graphEmbs']
         self.subGraphEmbsPath = path['subGraphEmbs']
         self.qEmbsPath = path['qEmbs']
+        self.nodesPath = path['nodes']
+        self.edgesPath = path['edges']
+        self.subNodesPath = path['subNodes']
+        self.subEdgesPath = path['subEdges']
         self.name = name
         self.nodes = []
         self.edges = []
@@ -32,7 +38,6 @@ class GRetrieverDataset(Dataset):
 
         print("Extracting nodes and edges ...") 
         self.extractNodesAndEdges()
-        
         
         self.graphEmbs = self.loadEmbeddings(self.subGraphEmbsPath if useGR else self.graphEmbsPath, type='graph')
         if self.qEmbsPath != None:
@@ -61,7 +66,8 @@ class GRetrieverDataset(Dataset):
     def makeDescription(self, index):
         nodesDf = pd.DataFrame(enumerate(self.nodes[index]), columns=['node_id', 'node_attr'])
         edgesDf = pd.DataFrame(self.edges[index])
-        return nodesDf.to_csv(index=False).replace('\n','\n\n')+'\n'+edgesDf.to_csv(index=False).replace('\n','\n\n')
+        #return nodesDf.to_csv(index=False).replace('\n','\n\n')+'\n'+edgesDf.to_csv(index=False).replace('\n','\n\n')
+        return nodesDf.to_csv(index=False)+'\n'+edgesDf.to_csv(index=False)
 
     def preprocessing(self):
         textEmbedder.loadModel['sbert']()
@@ -83,18 +89,28 @@ class GRetrieverDataset(Dataset):
             torch.save(processedGraphs, self.graphEmbsPath)
 
         if self.subGraphEmbsPath != None and not os.path.exists(self.subGraphEmbsPath):
-            processedGraphs = []
-            for i, qEmb in enumerate(self.qEmbs):
+            processedGraphs = [None for _ in self.graphEmbs]
+            processedNodes = [[] for _ in self.graphEmbs]
+            processedEdges = [[] for _ in self.graphEmbs]
+            for i, qEmb in tqdm(enumerate(self.qEmbs)):
                 dataId = self.dataId2graphId[i]
                 graph = self.graphEmbs[dataId]
                 if len(self.nodes[dataId]) == 0 or len(self.edges[dataId]) == 0:
-                    processedGraphs.append(graph)
+                    processedGraphs[dataId] = graph
+                    processedNodes[dataId] = self.nodes[dataId]
+                    processedEdges[dataId] = self.edges[dataId]
                 else:
                     nodePrizes, edgePrizes, eCost = retrieveAndAssign(graph, qEmb, self.topkN, self.topkE, self.eCost)
                     vNodePrizes, vEdges, vCosts, vEid2Eid, vNid2Eid = makeVirtualGraph(graph, nodePrizes, edgePrizes, eCost)
-                    processedGraph = makeSubGraph(graph, vNodePrizes, vEdges, vCosts, vEid2Eid, vNid2Eid)
-                    processedGraphs.append(processedGraph)
+                    processedGraph, n, e = makeSubGraph(graph, self.nodes[dataId], self.edges[dataId], vNodePrizes, vEdges, vCosts, vEid2Eid, vNid2Eid)
+                    processedGraphs[dataId] = processedGraph
+                    processedNodes[dataId] = n
+                    processedEdges[dataId] = e
 
+            with open(self.subNodesPath, 'w') as f:
+                json.dump(processedNodes, f)
+            with open(self.subEdgesPath, 'w') as f:
+                json.dump(processedEdges, f)
             torch.save(processedGraphs, self.subGraphEmbsPath)
 
     def splitDataset(self):
@@ -106,6 +122,11 @@ class GRetrieverDataset(Dataset):
         trainIdxs = [idxs[i] for i in range(trainTail)]
         validationIdxs = [idxs[i] for i in range(trainTail, validationTail)]
         testIdxs = [idxs[i] for i in range(validationTail, testTail)]
+
+        # Fix bug: remove the indices of the empty graphs from the val indices
+        trainIdxs = [i for i in trainIdxs if i != 2937]
+        validationIdxs = [i for i in validationIdxs if i != 2937]
+        testIdxs = [i for i in testIdxs if i != 2937]
         return trainIdxs, validationIdxs, testIdxs
     
     def eval(self, path):

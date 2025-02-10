@@ -1,5 +1,6 @@
 import pandas as pd
 import json
+import os
 from tqdm import tqdm
 from gRetrieverDataset import GRetrieverDataset
 
@@ -8,7 +9,11 @@ QUESTION_PATH = "../data/sceneGraphs/sceneGraphsQuestions.csv"
 PATH = {
     'graphEmbs': "/mnt/sde/shcha/sceneGraphs.pt",
     'subGraphEmbs': "../data/sceneGraphs/retrievedSceneGraphs.pt",
-    'qEmbs': "../data/sceneGraphs/questionEmbs.pt"
+    'qEmbs': "../data/sceneGraphs/questionEmbs.pt",
+    'nodes': "../data/sceneGraphs/nodes.json",
+    'edges': "../data/sceneGraphs/edges.json",
+    'subNodes': "../data/sceneGraphs/subNodes.json",
+    'subEdges': "../data/sceneGraphs/subEdges.json",
 }
 
 class SceneGraphsDataset(GRetrieverDataset):
@@ -16,8 +21,8 @@ class SceneGraphsDataset(GRetrieverDataset):
         with open(IMAGE_PATH, 'r', encoding='utf-8') as file:
             self.imageset = json.load(file)
         self.imgId2graphId = {}
-        super().__init__('sceneGraphs', pd.read_csv(QUESTION_PATH), PATH, useGR=useGR, topkN=3, topkE=3, eCost=1)
-        self.prompt = "Please answer the given question."
+        super().__init__('sceneGraphs', pd.read_csv(QUESTION_PATH), PATH, useGR=useGR, topkN=3, topkE=3, eCost=0.5)
+        self.prompt = None
 
     
     def __getitem__(self, index):
@@ -36,27 +41,49 @@ class SceneGraphsDataset(GRetrieverDataset):
         }
 
     def extractNodesAndEdges(self):
-        nodesDict = {}
-        edgesDict = {}    
-        for imageId, image in tqdm(self.imageset.items()):
-            oid2nid = {objectId:i for i, objectId in enumerate(image['objects'].keys())}
-            nodes = []
-            edges = []
-            for objectId, object in image['objects'].items():
-                nodeName = object['name']
-                x, y, w, h = object['x'], object['y'], object['w'], object['h']
-                nodeAttributes = object['attributes']
-                nodes.append(f"name: {nodeName}; attribute: {', '.join(nodeAttributes)}; (x,y,w,h): ({x},{y},{w},{h})")
+        if self.useGR and os.path.exists(self.subNodesPath) and os.path.exists(self.subEdgesPath):
+            with open(self.subNodesPath, 'r', encoding='utf-8') as f:
+                self.nodes = json.load(f)
+            with open(self.subEdgesPath, 'r', encoding='utf-8') as f:
+                self.edges = json.load(f)
+            for imgId in list(dict.fromkeys([d['image_id'] for d in self.dataset])):
+                self.imgId2graphId[imgId] = len(self.imgId2graphId)
 
-                for relation in object['relations']:
-                    edges.append({'src': oid2nid[objectId], 'edge': relation['name'], 'dst': oid2nid[relation['object']]})
+            self.dataId2graphId = {i: self.imgId2graphId[data['image_id']] for i, data in enumerate(self.dataset)}
+        elif os.path.exists(self.nodesPath) and os.path.exists(self.edgesPath):
+            with open(self.nodesPath, 'r', encoding='utf-8') as f:
+                self.nodes = json.load(f)
+            with open(self.edgesPath, 'r', encoding='utf-8') as f:
+                self.edges = json.load(f)
+            for imgId in list(dict.fromkeys([d['image_id'] for d in self.dataset])):
+                self.imgId2graphId[imgId] = len(self.imgId2graphId)
+        else:
+            nodesDict = {}
+            edgesDict = {}    
+            for imageId, image in tqdm(self.imageset.items()):
+                oid2nid = {objectId:i for i, objectId in enumerate(image['objects'].keys())}
+                nodes = []
+                edges = []
+                for objectId, object in image['objects'].items():
+                    nodeName = object['name']
+                    x, y, w, h = object['x'], object['y'], object['w'], object['h']
+                    nodeAttributes = object['attributes']
+                    nodes.append(f"name: {nodeName}; attribute: {', '.join(nodeAttributes)}; (x,y,w,h): ({x},{y},{w},{h})")
 
-            nodesDict[int(imageId)] = nodes
-            edgesDict[int(imageId)] = edges
+                    for relation in object['relations']:
+                        edges.append({'src': oid2nid[objectId], 'edge': relation['name'], 'dst': oid2nid[relation['object']]})
 
-        for imgId in list(dict.fromkeys([d['image_id'] for d in self.dataset])):
-            self.nodes.append(nodesDict[imgId])
-            self.edges.append(edgesDict[imgId])
-            self.imgId2graphId[imgId] = len(self.imgId2graphId)
+                nodesDict[int(imageId)] = nodes
+                edgesDict[int(imageId)] = edges
 
-        self.dataId2graphId = {i: self.imgId2graphId[data['image_id']] for i, data in enumerate(self.dataset)}
+            for imgId in list(dict.fromkeys([d['image_id'] for d in self.dataset])):
+                self.nodes.append(nodesDict[imgId])
+                self.edges.append(edgesDict[imgId])
+                self.imgId2graphId[imgId] = len(self.imgId2graphId)
+
+            with open(self.nodesPath, 'w') as f:
+                json.dump(self.nodes, f)
+            with open(self.edgesPath, 'w') as f:
+                json.dump(self.edges, f)
+
+            self.dataId2graphId = {i: self.imgId2graphId[data['image_id']] for i, data in enumerate(self.dataset)}

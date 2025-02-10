@@ -8,6 +8,8 @@ from sceneGraphsDataset import SceneGraphsDataset
 from webQspDataset import WebQspDataset
 from llm import Llm
 from ptLlm import PtLlm
+from graphLlm import GraphLlm
+from utils import *
 
 OUTPUT_PATH = "../output/"
 
@@ -20,20 +22,35 @@ DATASET = {
 MODEL = {
     'llm': Llm,
     'ptLlm': PtLlm,
+    'graphLlm': GraphLlm,
 }
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument('--dataset', type=str, default='explaGraphs')
 argparser.add_argument('--model', type=str, default='llm')
+argparser.add_argument('--useGR', action='store_true')
+argparser.add_argument('--seed', type=int, default=0)
+
 argparser.add_argument('--batchSize', type=int, default=32)
+
+argparser.add_argument('--maxLength', type=int, default=512)
+argparser.add_argument('--maxNewTokens', type=int, default=32)
+argparser.add_argument('--vTokenNum', type=int, default=10)
+
+argparser.add_argument("--gnnLayerNum", type=int, default=4)
+argparser.add_argument("--gnnInputDim", type=int, default=1024)
+argparser.add_argument("--gnnHiddenDim", type=int, default=1024)
+argparser.add_argument("--gnnHeadNum", type=int, default=4)
+argparser.add_argument("--gnnDropout", type=float, default=0.0)
+
 argparser.add_argument('--num', type=int, default=0)
 args = argparser.parse_args()
 
-
+seed_everything(seed=args.seed)
 #torch.manual_seed(42)
 
-dataset = DATASET[args.dataset]()
-model = MODEL[args.model](initPrompt=dataset.prompt)
+dataset = DATASET[args.dataset](useGR=args.useGR)
+model = MODEL[args.model](initPrompt=dataset.prompt, args=args)
 
 print("Preprocessing ... ")
 dataset.preprocessing()
@@ -45,7 +62,7 @@ if args.num != 0:
 else:
     testset = [dataset[i] for i in tqdm(testIdxs)]
 
-outputPath = OUTPUT_PATH + args.dataset + '_' + args.model + '.json'
+outputPath = OUTPUT_PATH + args.dataset + '_' + args.model + ('_GR' if args.useGR else '') + '.json'
 
 model.eval()
 print("Inferencing ... ")

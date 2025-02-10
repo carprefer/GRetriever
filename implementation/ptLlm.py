@@ -2,11 +2,13 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
 class PtLlm(torch.nn.Module):
-    def __init__(self, modelName='meta-llama/Llama-2-7b-hf', isFrozen=True, maxLength=512, maxNewTokens=32, initPrompt=None, vTokenNum=10):
+    def __init__(self, modelName='meta-llama/Llama-2-7b-chat-hf', isFrozen=True, initPrompt=None, args=None):
         super().__init__()
-        self.maxLength = maxLength
-        self.maxNewTokens = maxNewTokens
+        self.maxLength = args.maxLength
+        self.maxNewTokens = args.maxNewTokens
         self.tokenizer = AutoTokenizer.from_pretrained(modelName)
+        self.tokenizer.pad_token_id = 0
+        self.tokenizer.padding_side = 'left'
 
         self.model = AutoModelForCausalLM.from_pretrained(
             modelName,
@@ -29,8 +31,8 @@ class PtLlm(torch.nn.Module):
 
         # prompt tuning
         initPromptId = self.tokenizer.encode(initPrompt, add_special_tokens=False)
-        initPromptId = initPromptId * vTokenNum
-        initPromptId = initPromptId[:vTokenNum]
+        initPromptId = initPromptId * args.vTokenNum
+        initPromptId = initPromptId[:args.vTokenNum]
 
         self.initPromptEmb = torch.nn.Parameter(self.embedding.weight[torch.LongTensor(initPromptId)].detach().clone().to(torch.float32))
     
@@ -46,7 +48,7 @@ class PtLlm(torch.nn.Module):
             labelId += self.eosId
             inputId = descId + qId + self.userEosId + labelId
             inputEmb = self.embedding(torch.tensor(inputId))
-            inputEmb = torch.cat([self.bosEmb, self.initPromptEmb.repeat(len(datas),1), inputEmb], dim=0)
+            inputEmb = torch.cat([self.bosEmb, self.initPromptEmb, inputEmb], dim=0)
             labelId = [-100] * (inputEmb.shape[0] - len(labelId)) + labelId
 
             inputEmbs.append(inputEmb)
@@ -88,12 +90,14 @@ class PtLlm(torch.nn.Module):
             inputEmbs[i] = torch.cat([self.padEmb.repeat(padLength, 1), inputEmbs[i]])
             attentionMasks[i] = [0] * padLength + attentionMasks[i]
 
-        outputs = self.model(
+        outputs = self.model.generate(
             inputs_embeds=torch.stack(inputEmbs, dim=0),
             attention_mask=torch.tensor(attentionMasks),
-            max_new_tokens=self.maxNewTokens
+            max_new_tokens=self.maxNewTokens,
+            use_cache=True
         )
-        return [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in outputs.logits.argmax(dim=-1)]
+        return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        #return [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in outputs.logits.argmax(dim=-1)]
 
 examples = [
     {'question': "Argument 1: Cannabis should be legal.\nArgument 2: It's not a bad thing to make marijuana more available.\nQuestion: Do argument 1 and argument 2 support or counter each other? Answer in one word in the form of \'support\' or \'counter\'.\n\nAnswer:", 

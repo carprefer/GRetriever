@@ -3,16 +3,16 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from gnn import *
 
 class GraphLlm(torch.nn.Module):
-    def __init__(self, modelName='meta-llama/Llama-2-7b-hf', isFrozen=True, maxLength=512, maxNewTokens=32, initPrompt=None, vTokenNum=10, args=None):
+    def __init__(self, modelName='meta-llama/Llama-2-7b-chat-hf', isFrozen=True, initPrompt=None, args=None):
         super().__init__()
-        self.maxLength = maxLength
-        self.maxNewTokens = maxNewTokens
+        self.maxLength = args.maxLength
+        self.maxNewTokens = args.maxNewTokens
         self.tokenizer = AutoTokenizer.from_pretrained(modelName)
 
         self.model = AutoModelForCausalLM.from_pretrained(
             modelName,
             device_map='auto',
-            torch_dtype=torch.float16,
+            #torch_dtype=torch.float16,
             low_cpu_mem_usage=True
         )
         if isFrozen:
@@ -24,15 +24,15 @@ class GraphLlm(torch.nn.Module):
             in_channels=args.gnnInputDim, 
             hidden_channels=args.gnnHiddenDim, 
             out_channels=args.gnnHiddenDim, 
-            num_layers=args.gnnLayeNum, 
+            num_layers=args.gnnLayerNum, 
             dropout=args.gnnDropout, 
-            num_heads=args.gnnNumHead,
-        )
+            num_heads=args.gnnHeadNum,
+        ).to(self.model.device)
         self.projector = torch.nn.Sequential(
-            torch.nn.Linear(args.gnnHidenDim, 2048),
+            torch.nn.Linear(args.gnnHiddenDim, 2048),
             torch.nn.Sigmoid(),
             torch.nn.Linear(2048, 4096),
-        )
+        ).to(self.model.device)
 
         self.embedding = self.model.model.get_input_embeddings()
 
@@ -50,10 +50,12 @@ class GraphLlm(torch.nn.Module):
             qId = self.tokenizer.encode(data['question'])
             descId = self.tokenizer.encode(data['desc'], truncation=True, max_length=self.maxLength, add_special_tokens=False)
             labelId = self.tokenizer.encode(data['label'], truncation=True, max_length=self.maxNewTokens, add_special_tokens=False)
-            graph = data['graph']
+            graph = data['graphEmbs'].to(self.model.device)
+
             graphEmb, _ = self.graphEncoder(graph.x, graph.edge_index.long(), graph.edge_attr)
+
             graphEmb = graphEmb.mean(dim=0)
-            graphEmb = self.projector(graphEmb)
+            graphEmb = self.projector(graphEmb).unsqueeze(0)
 
             labelId += self.eosId
             inputId = descId + qId + self.userEosId + labelId
@@ -86,10 +88,10 @@ class GraphLlm(torch.nn.Module):
         for data in datas:
             qId = self.tokenizer.encode(data['question'])
             descId = self.tokenizer.encode(data['desc'], truncation=True, max_length=self.maxLength, add_special_tokens=False)
-            graph = data['graph']
+            graph = data['graphEmbs'].to(self.model.device)
             graphEmb, _ = self.graphEncoder(graph.x, graph.edge_index.long(), graph.edge_attr)
             graphEmb = graphEmb.mean(dim=0)
-            graphEmb = self.projector(graphEmb)
+            graphEmb = self.projector(graphEmb).unsqueeze(0)
 
             inputId = descId + qId + self.userEosId
             inputEmb = self.embedding(torch.tensor(inputId))
@@ -104,11 +106,13 @@ class GraphLlm(torch.nn.Module):
             inputEmbs[i] = torch.cat([self.padEmb.repeat(padLength, 1), inputEmbs[i]])
             attentionMasks[i] = [0] * padLength + attentionMasks[i]
 
-        outputs = self.model(
+        outputs = self.model.generate(
             inputs_embeds=torch.stack(inputEmbs, dim=0),
             attention_mask=torch.tensor(attentionMasks),
+            max_new_tokens=self.maxNewTokens,
+            use_cache=True
         )
-        return [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in outputs.logits.argmax(dim=-1)]
+        return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
 examples = [
     {'question': "Argument 1: Cannabis should be legal.\nArgument 2: It's not a bad thing to make marijuana more available.\nQuestion: Do argument 1 and argument 2 support or counter each other? Answer in one word in the form of \'support\' or \'counter\'.\n\nAnswer:", 

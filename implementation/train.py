@@ -2,14 +2,17 @@ import torch
 import json
 import argparse
 import random
+import os
 from tqdm import tqdm
 from explaGraphsDataset import ExplaGraphsDataset
 from sceneGraphsDataset import SceneGraphsDataset
 from webQspDataset import WebQspDataset
 from llm import Llm
 from ptLlm import PtLlm
+from graphLlm import GraphLlm
 from torch.nn.utils import clip_grad_norm_
 from lr import adjust_learning_rate
+from utils import *
 
 OUTPUT_PATH = "../output/"
 
@@ -22,11 +25,14 @@ DATASET = {
 MODEL = {
     'llm': Llm,
     'ptLlm': PtLlm,
+    'graphLlm': GraphLlm,
 }
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument('--dataset', type=str, default='explaGraphs')
 argparser.add_argument('--model', type=str, default='llm')
+argparser.add_argument('--useGR', action='store_true')
+argparser.add_argument('--seed', type=int, default=0)
 
 argparser.add_argument('--lr', type=float, default=1e-5)
 argparser.add_argument('--wd', type=float, default=0.05)
@@ -37,6 +43,10 @@ argparser.add_argument('--lrStep', type=int, default=2)
 argparser.add_argument('--patience', type=int, default=2)
 
 argparser.add_argument('--testBatchSize', type=int, default=32)
+
+argparser.add_argument('--maxLength', type=int, default=512)
+argparser.add_argument('--maxNewTokens', type=int, default=32)
+argparser.add_argument('--vTokenNum', type=int, default=10)
 
 argparser.add_argument("--gnnLayerNum", type=int, default=4)
 argparser.add_argument("--gnnInputDim", type=int, default=1024)
@@ -49,11 +59,11 @@ argparser.add_argument('--validationNum', type=int, default=0)
 argparser.add_argument('--testNum', type=int, default=0)
 args = argparser.parse_args()
 
-
+seed_everything(seed=args.seed)
 #torch.manual_seed(42)
 
-dataset = DATASET[args.dataset]()
-model = MODEL[args.model](initPrompt=dataset.prompt)
+dataset = DATASET[args.dataset](useGR=args.useGR)
+model = MODEL[args.model](initPrompt=dataset.prompt, args=args)
 
 print("Preprocessing ... ")
 dataset.preprocessing()
@@ -86,74 +96,75 @@ optimizer = torch.optim.AdamW(
 print(f"trainable params: {len(params)} || all params: {len(list(model.named_parameters()))}")
 
 
-outputPath = OUTPUT_PATH + args.dataset + '_' + args.model + '.json'
-checkpointPath = OUTPUT_PATH + args.dataset + '_' + args.model + '_checkpoint.pth'
+outputPath = OUTPUT_PATH + args.dataset + '_' + args.model + ('_GR' if args.useGR else '') + '.json'
+checkpointPath = OUTPUT_PATH + args.dataset + '_' + args.model + ('_GR' if args.useGR else '') + '_checkpoint.pth'
 
-bestValidationLoss = float('inf')
-bestEpoch = 0
+if not os.path.exists(checkpointPath):
+    bestValidationLoss = float('inf')
+    bestEpoch = 0
 
-print("Training ... ")
-for epoch in range(args.num_epochs):
-    # train
-    model.train()
-    epochLoss, accumLoss = 0., 0.
+    print("Training ... ")
+    for epoch in range(args.num_epochs):
+        # train
+        model.train()
+        epochLoss, accumLoss = 0., 0.
 
-    print(f"Epoch: {epoch+1}/{args.num_epochs}")
+        print(f"Epoch: {epoch+1}/{args.num_epochs}")
 
-    b = args.trainBatchSize
-    iterNum = len(trainset) // b + (len(trainset) % b > 0)
-    for i in tqdm(range(iterNum)):
-        optimizer.zero_grad()
-        loss = model(trainset[i*b:(i+1)*b])
-        loss.backward()
-        
-        clip_grad_norm_(optimizer.param_groups[0]['params'], 0.1)
-
-        if (i+1) % args.lrStep == 0:
-            adjust_learning_rate(optimizer.param_groups[0], args.lr, i / iterNum + epoch, args)
-
-        optimizer.step()
-
-        epochLoss += loss.item()
-        accumLoss += loss.item()
-
-        if (i+1) % args.lrStep == 0:
-            print(f"lr: {optimizer.param_groups[0]['lr']}")
-            print(f"acuum loss: {accumLoss / args.lrStep}")
-            accumLoss = 0.
-
-    print(f"Train Loss: {epochLoss / iterNum}")
-
-
-    # validation
-    model.eval()
-    validationLoss = 0.
-    b = args.trainBatchSize
-    iterNum = len(validationset) // b + (len(validationset) % b > 0)
-    with torch.no_grad():
+        b = args.trainBatchSize
+        iterNum = len(trainset) // b + (len(trainset) % b > 0)
         for i in tqdm(range(iterNum)):
-            loss = model(validationset[i*b:(i+1)*b])
-            validationLoss += loss.item()
-    validationLoss /= iterNum
-    print(f"Validation Loss: {validationLoss}")
-    
-    if validationLoss < bestValidationLoss:
-        bestValidationLoss = validationLoss
-        bestEpoch = epoch
+            optimizer.zero_grad()
+            loss = model(trainset[i*b:(i+1)*b])
+            loss.backward()
+            
+            clip_grad_norm_(optimizer.param_groups[0]['params'], 0.1)
 
-        params = dict(model.named_parameters())
-        stateDict = model.state_dict()
-        for k in list(stateDict.keys()):
-            if k in params and not params[k].requires_grad:
-                del stateDict[k]
-        torch.save(stateDict, checkpointPath)
+            if (i+1) % args.lrStep == 0:
+                adjust_learning_rate(optimizer.param_groups[0], args.lr, i / iterNum + epoch, args)
+
+            optimizer.step()
+
+            epochLoss += loss.item()
+            accumLoss += loss.item()
+
+            if (i+1) % args.lrStep == 0:
+                print(f"lr: {optimizer.param_groups[0]['lr']}")
+                print(f"acuum loss: {accumLoss / args.lrStep}")
+                accumLoss = 0.
+
+        print(f"Train Loss: {epochLoss / iterNum}")
+
+        # validation
+        model.eval()
+        validationLoss = 0.
+        b = args.trainBatchSize
+        iterNum = len(validationset) // b + (len(validationset) % b > 0)
+        with torch.no_grad():
+            for i in tqdm(range(iterNum)):
+                loss = model(validationset[i*b:(i+1)*b])
+                validationLoss += loss.item()
+        validationLoss /= iterNum
+        print(f"Validation Loss: {validationLoss}")
         
-    print(f"Best Epoch: {bestEpoch+1} (Validation Loss: {bestValidationLoss})")
-    
-    if epoch - bestEpoch >= args.patience:
-        print(f"Quick Stop!")
-        break
+        if validationLoss < bestValidationLoss:
+            bestValidationLoss = validationLoss
+            bestEpoch = epoch
 
+            params = dict(model.named_parameters())
+            stateDict = model.state_dict()
+            for k in list(stateDict.keys()):
+                if k in params and not params[k].requires_grad:
+                    del stateDict[k]
+            torch.save(stateDict, checkpointPath)
+            
+        print(f"Best Epoch: {bestEpoch+1} (Validation Loss: {bestValidationLoss})")
+        
+        if epoch - bestEpoch >= args.patience:
+            print(f"Quick Stop!")
+            break
+
+torch.cuda.empty_cache()
 
 print("Inferencing ... ")
 model.load_state_dict(torch.load(checkpointPath, map_location='cpu', weights_only=False), strict=False)
