@@ -1,4 +1,3 @@
-import json
 import pandas as pd
 import re
 import string
@@ -119,7 +118,5 @@ def get_accuracy_webqsp(path):
 eval_funcs = {
     "explaGraphs": get_accuracy_expla_graphs,
     "sceneGraphs": get_accuracy_gqa,
-    "scene_graphs_baseline": get_accuracy_gqa,
     "webQsp": get_accuracy_webqsp,
-    "webqsp_baseline": get_accuracy_webqsp,
 }

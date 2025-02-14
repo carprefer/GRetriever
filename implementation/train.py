@@ -1,66 +1,31 @@
-import torch
-import json
-import argparse
-import random
 import os
+import json
+import random
+import torch
 from tqdm import tqdm
-from explaGraphsDataset import ExplaGraphsDataset
-from sceneGraphsDataset import SceneGraphsDataset
-from webQspDataset import WebQspDataset
-from llm import Llm
-from ptLlm import PtLlm
-from graphLlm import GraphLlm
 from torch.nn.utils import clip_grad_norm_
-from lr import adjust_learning_rate
-from utils import *
+
+import explaGraphsDataset, sceneGraphsDataset, webQspDataset
+import llm, ptLlm, graphLlm
+import config, seed, lr, utils
+
 
 OUTPUT_PATH = "../output/"
 
 DATASET = {
-    'explaGraphs': ExplaGraphsDataset,
-    'sceneGraphs': SceneGraphsDataset,
-    'webQsp': WebQspDataset
+    'explaGraphs': explaGraphsDataset.ExplaGraphsDataset,
+    'sceneGraphs': sceneGraphsDataset.SceneGraphsDataset,
+    'webQsp': webQspDataset.WebQspDataset
 }
 
 MODEL = {
-    'llm': Llm,
-    'ptLlm': PtLlm,
-    'graphLlm': GraphLlm,
+    'llm': llm.Llm,
+    'ptLlm': ptLlm.PtLlm,
+    'graphLlm': graphLlm.GraphLlm,
 }
 
-argparser = argparse.ArgumentParser()
-argparser.add_argument('--dataset', type=str, default='explaGraphs')
-argparser.add_argument('--model', type=str, default='llm')
-argparser.add_argument('--useGR', action='store_true')
-argparser.add_argument('--seed', type=int, default=0)
-
-argparser.add_argument('--lr', type=float, default=1e-5)
-argparser.add_argument('--wd', type=float, default=0.05)
-argparser.add_argument('--trainBatchSize', type=int, default=8)
-argparser.add_argument('--num_epochs', type=int, default=10)
-argparser.add_argument('--warmup_epochs', type=int, default=1)
-argparser.add_argument('--lrStep', type=int, default=2)
-argparser.add_argument('--patience', type=int, default=2)
-
-argparser.add_argument('--testBatchSize', type=int, default=32)
-
-argparser.add_argument('--maxLength', type=int, default=512)
-argparser.add_argument('--maxNewTokens', type=int, default=32)
-argparser.add_argument('--vTokenNum', type=int, default=10)
-
-argparser.add_argument("--gnnLayerNum", type=int, default=4)
-argparser.add_argument("--gnnInputDim", type=int, default=1024)
-argparser.add_argument("--gnnHiddenDim", type=int, default=1024)
-argparser.add_argument("--gnnHeadNum", type=int, default=4)
-argparser.add_argument("--gnnDropout", type=float, default=0.0)
-
-argparser.add_argument('--trainNum', type=int, default=0)
-argparser.add_argument('--validationNum', type=int, default=0)
-argparser.add_argument('--testNum', type=int, default=0)
-args = argparser.parse_args()
-
-seed_everything(seed=args.seed)
-#torch.manual_seed(42)
+args = config.argparser.parse_args()
+seed.seed_everything(seed=args.seed)
 
 dataset = DATASET[args.dataset](useGR=args.useGR)
 model = MODEL[args.model](initPrompt=dataset.prompt, args=args)
@@ -88,6 +53,7 @@ if args.validationNum != 0:
 else:
     testset = [dataset[i] for i in tqdm(testIdxs)]
 
+# set optimizer
 params = [p for _, p in model.named_parameters() if p.requires_grad]
 optimizer = torch.optim.AdamW(
     [{'params': params, 'lr': args.lr, 'weight_decay': args.wd}, ],
@@ -121,7 +87,7 @@ if not os.path.exists(checkpointPath):
             clip_grad_norm_(optimizer.param_groups[0]['params'], 0.1)
 
             if (i+1) % args.lrStep == 0:
-                adjust_learning_rate(optimizer.param_groups[0], args.lr, i / iterNum + epoch, args)
+                lr.adjust_learning_rate(optimizer.param_groups[0], args.lr, i / iterNum + epoch, args)
 
             optimizer.step()
 

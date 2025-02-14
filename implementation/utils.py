@@ -3,31 +3,8 @@ from pcst_fast import pcst_fast
 from torch_geometric.data.data import Data
 import numpy as np
 
-import random, os
-import numpy as np
-import torch
-
-def seed_everything(seed: int):
-    random.seed(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
-
 def invertDict(d):
     return {v:k for k, v in d.items()}
-
-def getAvailableGpus():
-    availableGpus = []
-    for i in range(torch.cuda.device_count()):
-        stats = torch.cuda.mem_get_info(i)
-        remain = stats[0]
-        total = stats[1]
-        if remain > total * 0.9:
-            availableGpus.append(i)
-    return availableGpus
 
 def dataFrame2dictList(df):
     return [{k: df[k][i] for k in df.columns} for i in range(len(df[df.columns[0]]))]
@@ -85,7 +62,7 @@ def makeSubGraph(graph, nodes, edges, vNodePrizes, vEdges, vCosts, vEid2Eid, vNi
     vNodeIdxs = pcstNodeIdxs[pcstNodeIdxs >= graph.num_nodes].tolist()
     
     subEdgeIdxs = [vEid2Eid[vEid] for vEid in pcstEdgeIdxs if vEid in vEid2Eid] + [vNid2Eid[vNid] for vNid in vNodeIdxs]
-    #subEdgeIdxs = list(dict.fromkeys(subEdgeIdxs))
+    subEdgeIdxs = list(dict.fromkeys(subEdgeIdxs))
     edgeSrcDst = graph.edge_index[:, subEdgeIdxs].tolist()
     subNodeIdxs = pcstNodeIdxs[pcstNodeIdxs < graph.num_nodes].tolist() + edgeSrcDst[0] + edgeSrcDst[1]
 

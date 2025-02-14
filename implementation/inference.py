@@ -1,53 +1,27 @@
-import torch
 import json
-import argparse
 import random
+import torch
 from tqdm import tqdm
-from explaGraphsDataset import ExplaGraphsDataset
-from sceneGraphsDataset import SceneGraphsDataset
-from webQspDataset import WebQspDataset
-from llm import Llm
-from ptLlm import PtLlm
-from graphLlm import GraphLlm
-from utils import *
+import explaGraphsDataset, sceneGraphsDataset, webQspDataset
+import llm, ptLlm, graphLlm
+import config, seed, utils
 
 OUTPUT_PATH = "../output/"
 
 DATASET = {
-    'explaGraphs': ExplaGraphsDataset,
-    'sceneGraphs': SceneGraphsDataset,
-    'webQsp': WebQspDataset
+    'explaGraphs': explaGraphsDataset.ExplaGraphsDataset,
+    'sceneGraphs': sceneGraphsDataset.SceneGraphsDataset,
+    'webQsp': webQspDataset.WebQspDataset
 }
 
 MODEL = {
-    'llm': Llm,
-    'ptLlm': PtLlm,
-    'graphLlm': GraphLlm,
+    'llm': llm.Llm,
+    'ptLlm': ptLlm.PtLlm,
+    'graphLlm': graphLlm.GraphLlm,
 }
 
-argparser = argparse.ArgumentParser()
-argparser.add_argument('--dataset', type=str, default='explaGraphs')
-argparser.add_argument('--model', type=str, default='llm')
-argparser.add_argument('--useGR', action='store_true')
-argparser.add_argument('--seed', type=int, default=0)
-
-argparser.add_argument('--batchSize', type=int, default=32)
-
-argparser.add_argument('--maxLength', type=int, default=512)
-argparser.add_argument('--maxNewTokens', type=int, default=32)
-argparser.add_argument('--vTokenNum', type=int, default=10)
-
-argparser.add_argument("--gnnLayerNum", type=int, default=4)
-argparser.add_argument("--gnnInputDim", type=int, default=1024)
-argparser.add_argument("--gnnHiddenDim", type=int, default=1024)
-argparser.add_argument("--gnnHeadNum", type=int, default=4)
-argparser.add_argument("--gnnDropout", type=float, default=0.0)
-
-argparser.add_argument('--num', type=int, default=0)
-args = argparser.parse_args()
-
-seed_everything(seed=args.seed)
-#torch.manual_seed(42)
+args = config.argparser.parse_args()
+seed.seed_everything(seed=args.seed)
 
 dataset = DATASET[args.dataset](useGR=args.useGR)
 model = MODEL[args.model](initPrompt=dataset.prompt, args=args)
@@ -57,18 +31,19 @@ dataset.preprocessing()
 
 print("Making test set ... ")
 testIdxs = dataset.splitDataset()[2]
-if args.num != 0:
-    testset = [dataset[i] for i in tqdm(random.sample(testIdxs, min(len(testIdxs), args.num)))]
+if args.testNum != 0:
+    testset = [dataset[i] for i in tqdm(random.sample(testIdxs, min(len(testIdxs), args.testNum)))]
 else:
     testset = [dataset[i] for i in tqdm(testIdxs)]
+
 
 outputPath = OUTPUT_PATH + args.dataset + '_' + args.model + ('_GR' if args.useGR else '') + '.json'
 
 model.eval()
 print("Inferencing ... ")
 with open(outputPath, "w") as f:
-    for i in tqdm(range(0, len(testset), args.batchSize)):
-        inputs = testset[i:i+args.batchSize]
+    for i in tqdm(range(0, len(testset), args.testBatchSize)):
+        inputs = testset[i:i+args.testBatchSize]
         with torch.no_grad():
             outputs = model.inference(inputs)
         for input, output in zip(inputs, outputs):

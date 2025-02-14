@@ -1,12 +1,13 @@
-import torch
-import pandas as pd
 import os
 import random
 import json
+import pandas as pd
+import torch
 from tqdm import tqdm
 from torch.utils.data import Dataset
 from datasets import Dataset as HFDataset
 from torch_geometric.data.data import Data
+
 from textEmbedder import textEmbedder
 from evaluate import eval_funcs
 from utils import *
@@ -15,13 +16,7 @@ class GRetrieverDataset(Dataset):
     def __init__(self, name, dataset, path, useGR=False, topkN=3, topkE=3, eCost=1):
         super().__init__()
         self.useGR = useGR
-        self.graphEmbsPath = path['graphEmbs']
-        self.subGraphEmbsPath = path['subGraphEmbs']
-        self.qEmbsPath = path['qEmbs']
-        self.nodesPath = path['nodes']
-        self.edgesPath = path['edges']
-        self.subNodesPath = path['subNodes']
-        self.subEdgesPath = path['subEdges']
+        self.path = path
         self.name = name
         self.nodes = []
         self.edges = []
@@ -39,9 +34,9 @@ class GRetrieverDataset(Dataset):
         print("Extracting nodes and edges ...") 
         self.extractNodesAndEdges()
         
-        self.graphEmbs = self.loadEmbeddings(self.subGraphEmbsPath if useGR else self.graphEmbsPath, type='graph')
-        if self.qEmbsPath != None:
-            self.qEmbs = self.loadEmbeddings(self.qEmbsPath, type='question')
+        self.graphEmbs = self.loadEmbeddings(self.path['subGraphEmbs'] if useGR else self.path['graphEmbs'], type='graph')
+        if self.path['qEmbs'] != None:
+            self.qEmbs = self.loadEmbeddings(self.path['qEmbs'], type='question')
 
     def __len__(self):
         return len(self.dataset)
@@ -59,24 +54,22 @@ class GRetrieverDataset(Dataset):
         except:
             print(f"Fail to load {type} embeddings.")
             return []
-        
-    def collectValues(self, key):
-        return [d[key] for d in self.dataset]
     
     def makeDescription(self, index):
         nodesDf = pd.DataFrame(enumerate(self.nodes[index]), columns=['node_id', 'node_attr'])
         edgesDf = pd.DataFrame(self.edges[index])
-        #return nodesDf.to_csv(index=False).replace('\n','\n\n')+'\n'+edgesDf.to_csv(index=False).replace('\n','\n\n')
-        return nodesDf.to_csv(index=False)+'\n'+edgesDf.to_csv(index=False)
+        return nodesDf.to_csv(index=False).replace('\n','\n\n')+'\n'+edgesDf.to_csv(index=False).replace('\n','\n\n')
+        #return nodesDf.to_csv(index=False)+'\n'+edgesDf.to_csv(index=False)
 
     def preprocessing(self):
         textEmbedder.loadModel['sbert']()
         text2embs = textEmbedder.runModel['sbert']
-        if self.qEmbsPath != None and not os.path.exists(self.qEmbsPath):
+        
+        if self.path['qEmbs'] != None and not os.path.exists(self.path['qEmbs']):
             processedQuestions = text2embs([d['question'] for d in tqdm(self.dataset)])
-            torch.save(processedQuestions, self.qEmbsPath)
+            torch.save(processedQuestions, self.path['qEmbs'])
 
-        if not os.path.exists(self.graphEmbsPath):
+        if not os.path.exists(self.path['graphEmbs']):
             processedGraphs = []
             for nodes, edges in tqdm(zip(self.nodes, self.edges)):
                 nodeEmbs = text2embs(nodes)
@@ -86,9 +79,9 @@ class GRetrieverDataset(Dataset):
                 processedGraph = Data(x=nodeEmbs, edge_index=edgeIdx, edge_attr=edgeEmbs, num_nodes=len(nodes))
                 processedGraphs.append(processedGraph)
 
-            torch.save(processedGraphs, self.graphEmbsPath)
+            torch.save(processedGraphs, self.path['graphEmbs'])
 
-        if self.subGraphEmbsPath != None and not os.path.exists(self.subGraphEmbsPath):
+        if self.path['subGraphEmbs'] != None and not os.path.exists(self.path['subGraphEmbs']):
             processedGraphs = [None for _ in self.graphEmbs]
             processedNodes = [[] for _ in self.graphEmbs]
             processedEdges = [[] for _ in self.graphEmbs]
@@ -107,11 +100,11 @@ class GRetrieverDataset(Dataset):
                     processedNodes[dataId] = n
                     processedEdges[dataId] = e
 
-            with open(self.subNodesPath, 'w') as f:
+            with open(self.path['subNodes'], 'w') as f:
                 json.dump(processedNodes, f)
-            with open(self.subEdgesPath, 'w') as f:
+            with open(self.path['subEdges'], 'w') as f:
                 json.dump(processedEdges, f)
-            torch.save(processedGraphs, self.subGraphEmbsPath)
+            torch.save(processedGraphs, self.path['subGraphEmbs'])
 
     def splitDataset(self):
         idxs = list(range(self.__len__()))
@@ -123,7 +116,7 @@ class GRetrieverDataset(Dataset):
         validationIdxs = [idxs[i] for i in range(trainTail, validationTail)]
         testIdxs = [idxs[i] for i in range(validationTail, testTail)]
 
-        # Fix bug: remove the indices of the empty graphs from the val indices
+        # Fix bug: there is an empty graph in webQsp
         trainIdxs = [i for i in trainIdxs if i != 2937]
         validationIdxs = [i for i in validationIdxs if i != 2937]
         testIdxs = [i for i in testIdxs if i != 2937]

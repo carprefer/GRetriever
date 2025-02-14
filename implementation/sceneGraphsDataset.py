@@ -1,6 +1,6 @@
-import pandas as pd
-import json
 import os
+import json
+import pandas as pd
 from tqdm import tqdm
 from gRetrieverDataset import GRetrieverDataset
 
@@ -21,8 +21,8 @@ class SceneGraphsDataset(GRetrieverDataset):
         with open(IMAGE_PATH, 'r', encoding='utf-8') as file:
             self.imageset = json.load(file)
         self.imgId2graphId = {}
-        super().__init__('sceneGraphs', pd.read_csv(QUESTION_PATH), PATH, useGR=useGR, topkN=3, topkE=3, eCost=0.5)
-        self.prompt = None
+        super().__init__('sceneGraphs', pd.read_csv(QUESTION_PATH), PATH, useGR=useGR, topkN=3, topkE=3, eCost=1)
+        self.prompt = "Please answer the given question."
 
     
     def __getitem__(self, index):
@@ -41,19 +41,19 @@ class SceneGraphsDataset(GRetrieverDataset):
         }
 
     def extractNodesAndEdges(self):
-        if self.useGR and os.path.exists(self.subNodesPath) and os.path.exists(self.subEdgesPath):
-            with open(self.subNodesPath, 'r', encoding='utf-8') as f:
+        if self.useGR and os.path.exists(self.path['subNodes']) and os.path.exists(self.path['subEdges']):
+            with open(self.path['subNodes'], 'r', encoding='utf-8') as f:
                 self.nodes = json.load(f)
-            with open(self.subEdgesPath, 'r', encoding='utf-8') as f:
+            with open(self.path['subEdges'], 'r', encoding='utf-8') as f:
                 self.edges = json.load(f)
             for imgId in list(dict.fromkeys([d['image_id'] for d in self.dataset])):
                 self.imgId2graphId[imgId] = len(self.imgId2graphId)
 
             self.dataId2graphId = {i: self.imgId2graphId[data['image_id']] for i, data in enumerate(self.dataset)}
-        elif os.path.exists(self.nodesPath) and os.path.exists(self.edgesPath):
-            with open(self.nodesPath, 'r', encoding='utf-8') as f:
+        elif not self.useGR and os.path.exists(self.path['nodes']) and os.path.exists(self.path['edges']):
+            with open(self.path['nodes'], 'r', encoding='utf-8') as f:
                 self.nodes = json.load(f)
-            with open(self.edgesPath, 'r', encoding='utf-8') as f:
+            with open(self.path['edges'], 'r', encoding='utf-8') as f:
                 self.edges = json.load(f)
             for imgId in list(dict.fromkeys([d['image_id'] for d in self.dataset])):
                 self.imgId2graphId[imgId] = len(self.imgId2graphId)
@@ -81,9 +81,9 @@ class SceneGraphsDataset(GRetrieverDataset):
                 self.edges.append(edgesDict[imgId])
                 self.imgId2graphId[imgId] = len(self.imgId2graphId)
 
-            with open(self.nodesPath, 'w') as f:
+            with open(self.path['nodes'], 'w') as f:
                 json.dump(self.nodes, f)
-            with open(self.edgesPath, 'w') as f:
+            with open(self.path['edges'], 'w') as f:
                 json.dump(self.edges, f)
 
-            self.dataId2graphId = {i: self.imgId2graphId[data['image_id']] for i, data in enumerate(self.dataset)}
+        self.dataId2graphId = {i: self.imgId2graphId[data['image_id']] for i, data in enumerate(self.dataset)}

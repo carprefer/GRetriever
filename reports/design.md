@@ -20,8 +20,8 @@
 5. ~~retrieval module 구현 및 테스트~~
 6. ~~subgraph construction module 구현 및 테스트~~
 7. ~~subgraph embedding 생성~~
-8. answer generation module 구현 및 테스트
-9. 각 데이터셋에 대하여 training 및 평가 진행
+8. ~~answer generation module 구현 및 테스트~~
+9. ~~각 데이터셋에 대하여 training 및 평가 진행~~
 
 ## Environment Setup
 
@@ -43,9 +43,13 @@ pip install pcst_fast
 
 ## LLM 설정
 ```python
-from transformers import pipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
-pipe = pipeline("text-generation", model="meta-llama/Llama-2-7b-hf")
+self.model = AutoModelForCausalLM.from_pretrained(
+    'meta-llama/Llama-2-7b-chat-hf',
+    device_map='auto',
+    low_cpu_mem_usage=True
+)
 ```
 
 ## Dataset 다운로드

@@ -1,7 +1,6 @@
 import torch
-from transformers import AutoTokenizer, AutoModel
 import torch.nn.functional as F
-from utils import *
+from transformers import AutoTokenizer, AutoModel
 
 MODEL_NAME = "sentence-transformers/all-roberta-large-v1"
 
@@ -41,5 +40,3 @@ class TextEmbedder:
         return torch.cat(embeddings, dim=0)
 
 textEmbedder = TextEmbedder()
-#textEmbedder.loadModel['sbert']()
-#print(textEmbedder.runModel['sbert']("hello").shape)

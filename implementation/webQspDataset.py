@@ -1,8 +1,8 @@
-from tqdm import tqdm
-from gRetrieverDataset import GRetrieverDataset
-from datasets import load_dataset, concatenate_datasets
 import os
 import json
+from tqdm import tqdm
+from datasets import load_dataset, concatenate_datasets
+from gRetrieverDataset import GRetrieverDataset
 
 DATASET_NAME = "rmanluo/RoG-webqsp"
 PATH = {
@@ -35,15 +35,15 @@ class WebQspDataset(GRetrieverDataset):
         }
 
     def extractNodesAndEdges(self):
-        if self.useGR and os.path.exists(self.subNodesPath) and os.path.exists(self.subEdgesPath):
-            with open(self.subNodesPath, 'r', encoding='utf-8') as f:
+        if self.useGR and os.path.exists(self.path['subNodes']) and os.path.exists(self.path['subEdges']):
+            with open(self.path['subNodes'], 'r', encoding='utf-8') as f:
                 self.nodes = json.load(f)
-            with open(self.subEdgesPath, 'r', encoding='utf-8') as f:
+            with open(self.path['subEdges'], 'r', encoding='utf-8') as f:
                 self.edges = json.load(f)
-        elif os.path.exists(self.nodesPath) and os.path.exists(self.edgesPath):
-            with open(self.nodesPath, 'r', encoding='utf-8') as f:
+        elif os.path.exists(self.path['nodes']) and os.path.exists(self.path['edges']):
+            with open(self.path['nodes'], 'r', encoding='utf-8') as f:
                 self.nodes = json.load(f)
-            with open(self.edgesPath, 'r', encoding='utf-8') as f:
+            with open(self.path['edges'], 'r', encoding='utf-8') as f:
                 self.edges = json.load(f)
         else:
             for data in tqdm(self.dataset):
@@ -60,9 +60,9 @@ class WebQspDataset(GRetrieverDataset):
                 self.nodes.append(list(nodes.keys()))
                 self.edges.append(edges)
             
-            with open(self.nodesPath, 'w') as f:
+            with open(self.path['nodes'], 'w') as f:
                 json.dump(self.nodes, f)
-            with open(self.edgesPath, 'w') as f:
+            with open(self.path['edges'], 'w') as f:
                 json.dump(self.edges, f)
 
         self.dataId2graphId = {i: i for i in range(len(self.dataset))}

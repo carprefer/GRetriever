@@ -36,9 +36,9 @@ python train.py --dataset webQsp --model graphLlm --useGR
 
 | Setting | ExplaGraphs | SceneGraphs | WebQsp |
 |---------|-------------|-------------|--------|
-| Inference-only | 0.5920 | 0.35.72 | 47.02 |
-| prompt tuning | 0.5284(0.5126) | 0.48(0.27) | (25)| 
-| gRetriever | * | (0.5090) | 61.87 |
+| Inference-only | 0.6010 | 0.35.72 | 47.02 |
+| prompt tuning | 0.5144 | 0.4 | 27.0 | 
+| gRetriever | 0.9350 | 0.4965 | 61.87 |
 
 
 
@@ -46,4 +46,5 @@ python train.py --dataset webQsp --model graphLlm --useGR
 ## 3. Limitation
 
 - 시간관계상 LoRA는 테스트해보지 못하였다.
+- 시간관계상 전체 데이터의 일부만 training을 진행하여 accuracy가 낮다. 좀 더 많은 시간을 들이면 accuracy가 높아질 것으로 예상된다.
 - 논문의 결과와 비슷한 양상을 보이지만, 완전히 같지는 않기에 수정이 필요하다.
